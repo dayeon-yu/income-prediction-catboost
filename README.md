@@ -12,7 +12,8 @@
 | --- | --- |
 | **최종 모델** | CatBoost (iterations 2500 · lr 0.02 · depth 7 · l2 10, early stopping) + threshold 0.422 |
 | **검증 성능 (holdout)** | AUC **0.9306** · F1 **0.7373** · `(F1+AUC)/2` = **0.8339** |
-| **같은 조건의 다른 모델** | Logistic Regression 0.8138 · Random Forest 0.8166 · HistGradientBoosting 0.8287 |
+| **같은 조건의 다른 모델** | Logistic Regression 0.8136 · Random Forest 0.8166 · CatBoost(분석용 1,000 iter) 0.8321 |
+| **재현** | 2026-11 Colab 재실행에서 제출 수치 그대로 재현 — threshold 0.4220 · AUC 0.9306 · F1 0.7373 · 예측 분포 7,474 / 2,295 |
 | **핵심 전략** | 피처를 무작정 늘리지 않고, CatBoost가 단일 행으로 학습할 수 없는 신호(OOF Target Encoding · Group Aggregation)만 추가 |
 | **제출 후 보완** | 다중 모델 비교 · 피처 ablation · 검증 방식 점검 · 모델 해석 · 오류/공정성 분석 → [`notebooks/analysis.ipynb`](notebooks/analysis.ipynb) |
 
@@ -102,81 +103,84 @@ CatBoostClassifier(
 
 | 모델 | AUC | F1@0.5 | best threshold | F1@best | `(F1+AUC)/2` @best |
 | --- | --- | --- | --- | --- | --- |
-| Logistic Regression (One-Hot + 표준화) | 0.9159 | 0.6792 | 0.340 | 0.7117 | 0.8138 |
+| Logistic Regression (One-Hot + 표준화) | 0.9159 | 0.6800 | 0.380 | 0.7114 | 0.8136 |
 | Random Forest (500 trees) | 0.9167 | 0.6845 | 0.343 | 0.7165 | 0.8166 |
-| HistGradientBoosting | 0.9264 | 0.7093 | 0.408 | 0.7309 | 0.8287 |
-| **CatBoost (제출 모델)** | **0.9306** | – | 0.422 | **0.7373** | **0.8339** |
+| CatBoost (분석용: iterations 1,000 · lr 0.05) | 0.9301 | 0.7209 | 0.424 | 0.7342 | 0.8321 |
+| **CatBoost (제출 모델: iterations 2,500 · lr 0.02)** | **0.9306** | – | 0.422 | **0.7373** | **0.8339** |
 
 ![model comparison](results/figures/05_model_comparison.png)
 
-선형 모델 < RF < GBDT 순으로 올라가고, 범주형을 내부에서 처리하는 CatBoost가 가장 높았다. threshold를 0.5에서 0.34~0.42로 내리면 모든 모델에서 F1이 0.02~0.03 오른다.
+선형 모델 < RF < CatBoost 순으로 올라가고, 범주형을 내부에서 처리하는 CatBoost가 가장 높았다. 같은 CatBoost라도 iterations를 1,000 → 2,500으로 늘리면 0.0018이 더 오른다. threshold를 0.5에서 0.34~0.42로 내리면 모든 모델에서 F1이 0.01~0.03 오른다.
 
 ---
 
 ## 🧪 제출 후 추가 분석 — [`notebooks/analysis.ipynb`](notebooks/analysis.ipynb)
 
-과제 안내문이 요구한 "여러 모델 비교 · 모델 해석 · 오류 분석 · 공정성 분석"을 제출 파이프라인과 같은 피처 위에서 수행했다. 아래 수치는 scikit-learn `HistGradientBoosting` 기준이며, 노트북은 `catboost`가 설치된 환경에서 실행하면 같은 분석을 CatBoost로 다시 계산한다.
+과제 안내문이 요구한 "여러 모델 비교 · 모델 해석 · 오류 분석 · 공정성 분석"을 제출 파이프라인과 같은 피처 위에서 수행했다. 아래 수치는 Colab에서 **CatBoost(분석용 경량 설정: iterations 1,000 · lr 0.05 · depth 7)** 로 실행한 결과다. `catboost`가 없는 환경에서는 노트북이 scikit-learn `HistGradientBoosting`으로 같은 분석을 대신 수행한다.
 
 ### 1. 피처 블록 ablation — "cross-row 통계만 기여했다"는 주장 검증
 
 | 피처 구성 | 변수 수 | AUC | F1@best | `(F1+AUC)/2` | Δ |
 | --- | --- | --- | --- | --- | --- |
-| 원본 13개 (클리닝만) | 13 | 0.9282 | 0.7336 | 0.8309 | – |
-| + Base FE 6개 | 19 | 0.9263 | 0.7254 | 0.8258 | −0.0051 |
-| + Target Encoding 5개 | 24 | 0.9262 | 0.7266 | 0.8264 | −0.0045 |
-| + Group Aggregation 7개 (최종) | 31 | 0.9264 | 0.7309 | 0.8287 | −0.0022 |
+| 원본 13개 (클리닝만) | 13 | 0.9304 | 0.7380 | 0.8342 | – |
+| + Base FE 6개 | 19 | 0.9300 | 0.7343 | 0.8321 | −0.0021 |
+| + Target Encoding 5개 | 24 | 0.9301 | 0.7336 | 0.8318 | −0.0024 |
+| + Group Aggregation 7개 (최종) | 31 | 0.9301 | 0.7342 | 0.8321 | −0.0021 |
 
-HistGradientBoosting에서는 피처 블록 간 차이가 ±0.005로 **5-fold 표준편차(0.0069) 안**에 있다. 즉 이 모델에서는 파생 피처가 유의미한 이득을 주지 않았고, 보고서의 주장은 CatBoost 기준 ablation으로 확인해야 한다 (노트북을 CatBoost 환경에서 재실행하면 표가 자동으로 바뀐다). 한편 permutation importance에서는 `edu_occ`·`sex_marital` 상호작용 피처가 원본 `education`·`marital_status`를 대체해 상위에 오른다 — 정보가 새로 생긴 게 아니라 **표현이 옮겨간 것**이다.
+CatBoost 기준으로도 피처 블록 간 차이는 ±0.002로 **5-fold 표준편차(0.0057) 안**이고, 원본 13개만으로도 0.8342가 나온다. 즉 **파생 피처는 성능을 올리지도 내리지도 않았다.** CatBoost가 범주형을 내부에서 ordered target statistics로 처리하기 때문에 외부 Target Encoding과 그룹 통계가 새 정보를 더하지 못한 것으로 보인다. 결국 최종 성능을 만든 것은 CatBoost 자체와 threshold 조정이며, 보고서의 "선별 추가한 cross-row 통계가 성능에 기여했다"는 주장은 수치로 뒷받침되지 않는다. permutation importance에서 `cap_net`·`age_bins`·`sex_marital` 같은 파생 피처가 상위에 오르는 것은 원본 변수의 정보가 **옮겨간 것**이지 새로 생긴 것이 아니다.
 
 ### 2. 검증 방식 점검
 
 | 점검 항목 | 결과 |
 | --- | --- |
-| Target Encoding을 split **전에** 계산 (현재) vs split **후** train 통계만 사용 | 0.8287 vs 0.8268 → **+0.0019 낙관 편향** (train 행 인코딩에 val 타겟이 섞임) |
-| 5-fold CV (fold마다 split-first 인코딩) | `(F1+AUC)/2` **0.8245 ± 0.0069**, fold별 0.8168~0.8332 |
-| fold별 최적 threshold | 0.333~0.391 (std 0.023) → 단일 holdout의 0.422는 분할에 따라 흔들리는 값 |
-| threshold 민감도 | F1이 최대값−0.01 이내인 구간 **0.27~0.46** → 정확한 값보다 "0.5를 쓰지 않는다"는 결정이 중요 |
+| Target Encoding을 split **전에** 계산 (현재) vs split **후** train 통계만 사용 | 0.8321 vs 0.8325 → 차이 −0.0004, **측정 가능한 편향 없음** (HistGradientBoosting에서는 +0.0019였음). 원칙상 fold 안에서 계산하는 것이 맞지만 이 데이터에서 실질 영향은 없었다 |
+| 5-fold CV (fold마다 split-first 인코딩) | `(F1+AUC)/2` **0.8291 ± 0.0057**, AUC 0.9282 ± 0.0043, fold별 0.8239~0.8372 — 제출 수치 0.8339는 이 범위의 위쪽에 있다 |
+| fold별 최적 threshold | 0.376~0.474 (std 0.040) → 단일 holdout의 0.422는 분할에 따라 흔들리는 값 (OOF 전체 기준 0.382) |
+| threshold 민감도 | F1이 최대값−0.01 이내인 구간 **0.27~0.47** → 정확한 값보다 "0.5를 쓰지 않는다"는 결정이 중요 |
 
 ![threshold](results/figures/06_threshold_curve.png)
 
-### 3. 모델 해석 — permutation importance (holdout AUC 하락량)
+### 3. 모델 해석 — 두 가지 중요도
 
-`capital_gain`(0.064) > `edu_occ`(0.039) > `age`(0.039) > `sex_marital`(0.014) > `hours_per_week`(0.013) > `capital_loss`(0.012) > `sex_marital_te`(0.011) > `relationship`(0.010). EDA에서 본 자본소득 규칙·학력×직업·연령이 그대로 상위에 온다.
+- **제출 모델의 CatBoost LossFunctionChange** ([`code.ipynb` §9](code.ipynb), holdout 손실 증가량): `relationship`(0.0128) > `cap_net`(0.0085) > `hours_per_week`(0.0075) > `capital_gain`(0.0064) > `age`(0.0053) > `sex_marital`(0.0051) > `age_bins`(0.0043) > `capital_loss`(0.0033) > `education`(0.0028)
+- **permutation importance** (analysis §6, holdout AUC 하락량): `cap_net`(0.0145) ≈ `relationship`(0.0143) > `hours_per_week`(0.0122) > `capital_gain`(0.0115) > `education`(0.0080) > `age_bins`(0.0062) > `age`(0.0057) > `capital_loss`(0.0048)
+
+두 방법 모두 **가구관계 · 자본소득 · 근로시간 · 학력 · 연령**을 상위로 꼽는다 — EDA에서 본 규칙형 신호와 같다. 중복 피처(`cap_net`↔`capital_gain`, `age_bins`↔`age`)가 중요도를 나눠 갖기 때문에 개별 값은 작게 나온다.
 
 ![importance](results/figures/07_permutation_importance.png)
 
-### 4. 오류 분석 (OOF 예측, threshold 0.354)
+### 4. 오류 분석 (OOF 예측, threshold 0.382)
 
-- 혼동행렬: TN 26,388 · FP 3,341 · FN 2,161 · TP 7,183 → precision 0.683 · recall 0.769
-- **False Negative(고소득을 놓침)** 는 양성이 드문 집단에 몰린다: 학력 `9th` FN율 84%, `Never-married` 53%, 25세 이하 61%
-- **False Positive** 는 반대로 양성이 흔한 집단에서 높다: `Doctorate` FP율 53%, `Married-civ-spouse` 31%
+- 혼동행렬: TN 26,726 · FP 3,003 · FN 2,272 · TP 7,072 → precision 0.702 · recall 0.757
+- **False Negative(고소득을 놓침)** 는 양성이 드문 집단에 몰린다: 학력 `9th` FN율 84%, `7th-8th` 80%, `Never-married` 55%, 25세 이하 69%
+- **False Positive** 는 반대로 양성이 흔한 집단에서 높다: `Doctorate` FP율 58%, `Prof-school` 48%, `Married-civ-spouse` 28%
 - 모델이 "집단의 기본 비율"에 크게 기대고 있어, 집단 평균에서 벗어난 개인을 틀린다
 
 ### 5. 공정성 분석 — 성별 · 인종 (과제 안내문의 추가 분석 항목)
 
 | 그룹 | n | 실제 >50K | 예측 양성률 | TPR | FPR | AUC |
 | --- | --- | --- | --- | --- | --- | --- |
-| Male | 26,121 | 0.304 | 0.350 | 0.785 | 0.161 | 0.905 |
-| Female | 12,952 | 0.109 | 0.106 | 0.677 | 0.036 | 0.944 |
-| White | 33,402 | 0.254 | 0.288 | 0.776 | 0.123 | 0.921 |
-| Black | 3,774 | 0.121 | 0.121 | 0.660 | 0.047 | 0.949 |
-| Asian-Pac-Islander | 1,215 | 0.268 | 0.297 | 0.757 | 0.129 | 0.895 |
+| Male | 26,121 | 0.304 | 0.335 | 0.772 | 0.144 | 0.910 |
+| Female | 12,952 | 0.109 | 0.103 | 0.674 | 0.033 | 0.948 |
+| White | 33,402 | 0.254 | 0.275 | 0.763 | 0.109 | 0.925 |
+| Black | 3,774 | 0.121 | 0.117 | 0.660 | 0.042 | 0.951 |
+| Asian-Pac-Islander | 1,215 | 0.268 | 0.300 | 0.751 | 0.136 | 0.904 |
 
 ![fairness](results/figures/09_fairness_sex_race.png)
 
-- 예측 양성률 격차는 실제 양성률 격차를 거의 그대로 따른다. 다만 **TPR은 여성이 0.11p, Black이 0.12p 낮다** → 소수 집단의 고소득자를 더 많이 놓친다 (equal-opportunity 격차)
-- **혼인상태를 통제하면 격차가 사라진다**: `Married-civ-spouse` 안에서는 TPR 남 0.817 vs 여 0.825, FPR 0.308 vs 0.298 → 모델이 성별 자체보다 혼인상태·가구관계를 통해 간접적으로 반영
+- 예측 양성률 격차는 실제 양성률 격차를 거의 그대로 따른다. 다만 **TPR은 여성이 0.10p, Black이 0.10p 낮다** → 소수 집단의 고소득자를 더 많이 놓친다 (equal-opportunity 격차)
+- **혼인상태를 통제하면 격차가 사라진다**: `Married-civ-spouse` 안에서는 TPR 남 0.804 vs 여 0.837, FPR 0.279 vs 0.301 → 모델이 성별 자체보다 혼인상태·가구관계를 통해 간접적으로 반영
 - 표본이 적은 집단(`Amer-Indian-Eskimo` 372, `Other` 310)의 지표는 불안정하다
 
 ---
 
 ## 💭 한계와 다음 단계
 
-1. **검증 설계**: Target Encoding·Group Aggregation을 fold 안에서 계산하고, 단일 holdout 대신 **CV 평균±표준편차**로 보고해야 한다. 제출 수치 0.8339는 약 +0.002의 낙관 편향과 ±0.007의 분할 분산을 안고 있다.
-2. **피처 효과의 모델 의존성**: HistGradientBoosting에서는 파생 피처 이득이 없었다. CatBoost에서 같은 ablation을 돌려 "어떤 블록이 실제로 기여했는지"를 숫자로 남기는 것이 다음 단계다.
+1. **검증 설계**: 단일 holdout 대신 **CV 평균±표준편차**로 보고해야 한다. 제출 수치 0.8339는 5-fold 기준 0.8291 ± 0.0057의 위쪽 끝에 있는, 분할 운이 섞인 값이다. Target Encoding을 split 전에 계산한 것은 원칙상 틀렸지만 측정된 편향은 없었다(−0.0004).
+2. **피처 엔지니어링의 효과 부재**: CatBoost 기준 ablation에서 원본 13개(0.8342)와 최종 31개(0.8321)의 차이가 노이즈 범위다. 보고서가 "핵심 전략"으로 내세운 선별 피처 추가는 성능에 기여하지 않았고, 성능은 CatBoost의 범주형 처리와 threshold 조정이 만들었다. 다음 단계는 피처를 늘리는 대신 **iterations·learning rate·depth 탐색**과 **외부 신호**(예: 지역·산업 통계)에 시간을 쓰는 것이다.
 3. **학습 길이**: 제출 모델의 `bestIteration = 2498 / 2500` → early stopping이 발동하지 않았다. iterations를 늘리거나 learning rate를 올리면 성능이 더 오를 여지가 있다.
 4. **중복 행**: train에 `id`를 제외하면 완전히 같은 행이 4,482건(11.5%) 있다. 같은 프로필이 train/val 양쪽에 들어가면 holdout 성능이 부풀 수 있어, 중복을 묶는 GroupKFold도 검토할 만하다.
-5. **공정성**: TPR 격차를 줄이려면 그룹별 threshold나 재가중을 시도할 수 있지만, `sex`·`race`를 입력에서 빼는 것만으로는 해결되지 않는다(혼인상태·가구관계가 대리 변수).
+5. **공정성**: 여성·Black 집단의 TPR이 0.10p 낮다. 그룹별 threshold나 재가중으로 줄일 수 있지만, `sex`·`race`를 입력에서 빼는 것만으로는 해결되지 않는다(혼인상태·가구관계가 대리 변수).
 
 ---
 
@@ -217,7 +221,7 @@ pip install -r requirements.txt
 #   data/test.csv   (9,769 × 14)
 
 jupyter notebook code.ipynb                 # 제출 파이프라인 → prediction.csv (CPU 약 6분)
-cd notebooks && jupyter notebook analysis.ipynb   # 추가 분석 (HistGB 기준 약 1분, CatBoost 기준 약 15분)
+cd notebooks && jupyter notebook analysis.ipynb   # 추가 분석 (CatBoost 기준 약 15분, catboost 없으면 HistGB로 약 1분)
 ```
 
 Google Colab에서는 `code.ipynb` 상단의 `TRAIN_PATH`/`TEST_PATH`를 Drive 경로로 바꾸면 된다. 두 노트북 모두 `random_state=42`로 고정되어 있다.

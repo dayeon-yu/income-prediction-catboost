@@ -92,4 +92,4 @@ CatBoostClassifier(
 
 ---
 
-*코드와 보고서 전문은 [GitHub 저장소](https://github.com/<your-username>/income-prediction-catboost)에서 확인할 수 있습니다.*
+*코드와 보고서 전문은 [GitHub 저장소](https://github.com/dayeon-yu/income-prediction-catboost)에서 확인할 수 있습니다.*
